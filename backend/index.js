@@ -34,6 +34,17 @@ io.on('connection', (socket) => {
            // socketId: socket.id
         });
     });
+
+    socket.on('typing' , (username)=>{
+        //broadcast the typing event to all the clients
+        socket.broadcast.emit('user typing', username);
+
+    });
+
+    socket.on('stop typing', (username)=>{
+        //broadcast the 'stop typing' to all the other clients
+        socket.broadcast.emit('user stop typing', username)
+    })
     
     // Handle user disconnection
     socket.on('disconnect', () => {

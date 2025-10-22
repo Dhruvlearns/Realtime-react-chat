@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, use } from 'react';
 import { io } from 'socket.io-client';
 import tailwindConfig from '../../tailwind.config';
 
@@ -8,6 +8,14 @@ const ChatPage = () => {
   const [message, setMessage] = useState('');
   const socketRef = useRef();
   const messagesEndRef = useRef(null);
+  // Missing initialization
+const typingTimeout=useRef(null);
+
+const activeTypers = useRef({}); // This Ref holds the names of users currently typing. // Updating this does NOT cause a re-render.
+
+
+const [, setTypersUpdated] = useState(0); // This state is ONLY used to force the component to re-render // when the activeTypers Ref is updated, displaying the names.
+
 
   useEffect(() => {
     // Connect to the backend server
@@ -17,6 +25,23 @@ const ChatPage = () => {
     socketRef.current.on('chat message', (msg) => {
       setMessages((prevMessages) => [...prevMessages, msg]);
     });
+
+// ... inside your main useEffect hook
+
+    // ADD THESE LISTENERS:
+    socketRef.current.on('user typing', (username) => {
+      activeTypers.current[username] = true;
+      // Force a re-render to display the indicator
+      setTypersUpdated(prev => prev + 1); 
+    });
+
+    socketRef.current.on('user stop typing', (username) => {
+      delete activeTypers.current[username];
+      // Force a re-render to hide the indicator
+      setTypersUpdated(prev => prev + 1); 
+    });
+
+// ... rest of the cleanup function
 
     // Cleanup function to disconnect the socket when the component unmounts
     return () => {
@@ -30,6 +55,30 @@ const ChatPage = () => {
       messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages]);
+
+
+
+  const handleTyping = () => {
+    // 1. Emit 'typing' only if the user wasn't marked as typing before
+    // We use the Ref to check if the current user is active
+    if (!activeTypers.current[name]) { 
+      // We don't update the local Ref here, as the server broadcast will handle it.
+      socketRef.current.emit('typing', name); 
+    }
+  
+    // 2. Clear any existing timeout (the debounce mechanism)
+    if (typingTimeout.current) {
+      clearTimeout(typingTimeout.current);
+    }
+  
+    // 3. Set a new timeout to send 'stop typing' after a pause (1000ms)
+    typingTimeout.current = setTimeout(() => {
+      // When the timeout finishes, tell the server you stopped typing
+      socketRef.current.emit('stop typing', name); 
+    }, 1000);
+  };
+
+
 
   // Handle form submission
   const handleSendMessage = (e) => {
@@ -73,6 +122,13 @@ const ChatPage = () => {
           );
         })}
         <div ref={messagesEndRef} />
+            {/* Extract the keys (usernames) from the activeTypers object */}
+            {Object.keys(activeTypers.current).length > 0 && (
+              <div className="text-sm text-gray-500 italic px-4 pb-2">
+                {Object.keys(activeTypers.current).join(', ')}{' '}
+                {Object.keys(activeTypers.current).length > 1 ? 'are' : 'is'} typing...
+              </div>
+            )}
       </div>
 
       <form onSubmit={handleSendMessage} className="bg-white p-4 shadow-t-md flex space-x-2">
@@ -87,7 +143,9 @@ const ChatPage = () => {
           type="text"
           placeholder="Type a message..."
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => {setMessage(e.target.value);
+          handleTyping();
+          }}
           className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
         />
         <button
